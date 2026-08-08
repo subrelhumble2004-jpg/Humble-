@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { scroll-behavior: smooth; }
+
+body {
+  @apply bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-body transition-colors duration-300;
+}
+
+::selection { background: #16A34A; color: white; }
+
+.ticket-notch::before,
+.ticket-notch::after {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: inherit;
+  top: -12px;
+}
+.ticket-notch::before { left: -12px; }
+.ticket-notch::after { right: -12px; }
