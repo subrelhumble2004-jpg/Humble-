@@ -7,7 +7,6 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 
 const { testConnection } = require("./config/db");
-
 const { notFound, errorHandler } = require("./middleware/errorHandler");
 
 const authRoutes = require("./routes/authRoutes");
@@ -19,8 +18,10 @@ const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 
-/* ---------- Security & Core Middleware ---------- */
+/* ---------- Railway / reverse proxy ---------- */
+app.set("trust proxy", 1);
 
+/* ---------- Security & core middleware ---------- */
 app.use(
   helmet({
     crossOriginResourcePolicy: {
@@ -47,8 +48,7 @@ app.use(
   )
 );
 
-/* ---------- Rate Limiting ---------- */
-
+/* ---------- Rate limiting ---------- */
 const limiter = rateLimit({
   windowMs:
     Number(process.env.RATE_LIMIT_WINDOW_MS) ||
@@ -69,10 +69,9 @@ const limiter = rateLimit({
 
 app.use("/api", limiter);
 
-/* ---------- Health Check ---------- */
-
+/* ---------- Health check ---------- */
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
+  res.json({
     success: true,
     message: "MedQueue Pro API is running",
     time: new Date().toISOString(),
@@ -80,7 +79,6 @@ app.get("/api/health", (req, res) => {
 });
 
 /* ---------- Routes ---------- */
-
 app.use("/api/auth", authRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/doctors", doctorRoutes);
@@ -88,20 +86,18 @@ app.use("/api/appointments", appointmentRoutes);
 app.use("/api/queue", queueRoutes);
 app.use("/api/admin", adminRoutes);
 
-/* ---------- Error Handling ---------- */
-
+/* ---------- Error handling ---------- */
 app.use(notFound);
 app.use(errorHandler);
 
-/* ---------- Start Server ---------- */
-
+/* ---------- Start server ---------- */
 const PORT = process.env.PORT || 8080;
 
 (async () => {
   try {
     await testConnection();
 
-    app.listen(PORT, "0.0.0.0", () => {
+    app.listen(PORT, () => {
       console.log(
         `🚀 MedQueue Pro API running on port ${PORT}`
       );
