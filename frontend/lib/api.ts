@@ -4,7 +4,9 @@ import axios from "axios";
 // (see the /backend project — every function below maps 1:1 to a route there).
 
 export const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api",
+  baseURL:
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://humble-production.up.railway.app/api",
   headers: { "Content-Type": "application/json" },
 });
 
@@ -17,29 +19,68 @@ api.interceptors.request.use((config) => {
 });
 
 // ---- Auth ----
-export const registerPatient = (data: { fullName: string; email: string; phone?: string; password: string }) =>
+export const registerPatient = (data: {
+  fullName: string;
+  email: string;
+  phone?: string;
+  password: string;
+}) =>
   api.post("/auth/register", data);
 
-export const login = (data: { email: string; password: string }) => api.post("/auth/login", data);
+export const login = (data: {
+  email: string;
+  password: string;
+}) =>
+  api.post("/auth/login", data);
 
-export const getMe = () => api.get("/auth/me");
+export const getMe = () =>
+  api.get("/auth/me");
 
 // ---- Departments & Doctors ----
-export const fetchDepartments = () => api.get("/departments");
-export const fetchDoctors = (params?: { department?: string; status?: string }) => api.get("/doctors", { params });
+export const fetchDepartments = () =>
+  api.get("/departments");
+
+export const fetchDoctors = (params?: {
+  department?: string;
+  status?: string;
+}) =>
+  api.get("/doctors", { params });
 
 // ---- Appointments ----
-export const bookAppointment = (data: { doctorId: number; departmentId: number; date: string; time: string; reason?: string }) =>
+export const bookAppointment = (data: {
+  doctorId: number;
+  departmentId: number;
+  date: string;
+  time: string;
+  reason?: string;
+}) =>
   api.post("/appointments", data);
-export const fetchMyAppointments = () => api.get("/appointments/me");
-export const cancelAppointment = (id: number) => api.patch(`/appointments/${id}/cancel`);
-export const rescheduleAppointment = (id: number, data: { date: string; time: string }) =>
+
+export const fetchMyAppointments = () =>
+  api.get("/appointments/me");
+
+export const cancelAppointment = (id: number) =>
+  api.patch(`/appointments/${id}/cancel`);
+
+export const rescheduleAppointment = (
+  id: number,
+  data: {
+    date: string;
+    time: string;
+  }
+) =>
   api.patch(`/appointments/${id}/reschedule`, data);
 
 // ---- Queue ----
-export const fetchDepartmentQueue = (departmentId: number) => api.get(`/queue/${departmentId}`);
-export const fetchQueuePosition = (appointmentId: number) => api.get(`/queue/appointment/${appointmentId}/position`);
+export const fetchDepartmentQueue = (departmentId: number) =>
+  api.get(`/queue/${departmentId}`);
+
+export const fetchQueuePosition = (appointmentId: number) =>
+  api.get(`/queue/appointment/${appointmentId}/position`);
 
 // ---- Admin ----
-export const fetchAdminStats = () => api.get("/admin/stats");
-export const fetchAllPatients = () => api.get("/admin/patients");
+export const fetchAdminStats = () =>
+  api.get("/admin/stats");
+
+export const fetchAllPatients = () =>
+  api.get("/admin/patients");
