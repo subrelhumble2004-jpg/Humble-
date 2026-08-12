@@ -11,13 +11,15 @@ const { pool, testConnection } = require("./database/db");
 
 const app = express();
 
-// Railway provides PORT automatically.
-// Local development falls back to 5000.
+// ==================================================
+// PORT
+// ==================================================
+
 const PORT = process.env.PORT || 5000;
 
-// --------------------------------------------------
-// Security middleware
-// --------------------------------------------------
+// ==================================================
+// SECURITY
+// ==================================================
 
 app.use(helmet());
 
@@ -25,7 +27,7 @@ app.use(
   cors({
     origin: process.env.CLIENT_URL
       ? process.env.CLIENT_URL.split(",").map((url) => url.trim())
-      : "*",
+      : true,
     credentials: true,
   })
 );
@@ -42,9 +44,9 @@ const limiter = rateLimit({
 
 app.use("/api", limiter);
 
-// --------------------------------------------------
-// Health check
-// --------------------------------------------------
+// ==================================================
+// BASIC ROUTES
+// ==================================================
 
 app.get("/", (req, res) => {
   res.status(200).json({
@@ -63,48 +65,111 @@ app.get("/api/health", async (req, res) => {
   });
 });
 
-// --------------------------------------------------
-// Routes
-// --------------------------------------------------
+// ==================================================
+// ROUTES
+// ==================================================
 
-try {
-  const authRoutes = require("./routes/authRoutes");
-  app.use("/api/auth", authRoutes);
-} catch (error) {
-  console.warn("Auth routes not loaded:", error.message);
+function loadRoute(routePath, apiPath, routeName) {
+  try {
+    const route = require(routePath);
+    app.use(apiPath, route);
+    console.log(`✅ ${routeName} route loaded`);
+  } catch (error) {
+    console.warn(`⚠️ ${routeName} route not loaded: ${error.message}`);
+  }
 }
 
-try {
-  const appointmentRoutes = require("./routes/appointmentRoutes");
-  app.use("/api/appointments", appointmentRoutes);
-} catch (error) {
-  console.warn("Appointment routes not loaded:", error.message);
+loadRoute(
+  "./routes/authRoutes",
+  "/api/auth",
+  "Authentication"
+);
+
+loadRoute(
+  "./routes/appointmentRoutes",
+  "/api/appointments",
+  "Appointments"
+);
+
+loadRoute(
+  "./routes/doctorRoutes",
+  "/api/doctors",
+  "Doctors"
+);
+
+loadRoute(
+  "./routes/departmentRoutes",
+  "/api/departments",
+  "Departments"
+);
+
+loadRoute(
+  "./routes/queueRoutes",
+  "/api/queue",
+  "Queue"
+);
+
+// ==================================================
+// DATABASE SCHEMA MIGRATION
+// ==================================================
+
+async function runMigrations() {
+  const schemaPath = path.join(__dirname, "schema.sql");
+
+  if (!fs.existsSync(schemaPath)) {
+    console.warn(
+      "⚠️ schema.sql was not found in the backend folder."
+    );
+    console.warn(
+      "⚠️ Database migration was skipped."
+    );
+    return;
+  }
+
+  console.log("📄 Loading schema.sql...");
+
+  const schema = fs.readFileSync(schemaPath, "utf8");
+
+  // Remove SQL comments
+  const cleanedSchema = schema
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  // Split SQL statements
+  const statements = cleanedSchema
+    .split(/;\s*(?:\r?\n|$)/)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+
+  console.log(
+    `📊 Found ${statements.length} SQL statements.`
+  );
+
+  for (const statement of statements) {
+    try {
+      await pool.query(statement);
+    } catch (error) {
+      console.error(
+        "❌ Migration statement failed:",
+        error.message
+      );
+
+      console.error(
+        "SQL:",
+        statement.substring(0, 200)
+      );
+
+      throw error;
+    }
+  }
+
+  console.log("✅ Database schema migration completed.");
 }
 
-try {
-  const doctorRoutes = require("./routes/doctorRoutes");
-  app.use("/api/doctors", doctorRoutes);
-} catch (error) {
-  console.warn("Doctor routes not loaded:", error.message);
-}
-
-try {
-  const departmentRoutes = require("./routes/departmentRoutes");
-  app.use("/api/departments", departmentRoutes);
-} catch (error) {
-  console.warn("Department routes not loaded:", error.message);
-}
-
-try {
-  const queueRoutes = require("./routes/queueRoutes");
-  app.use("/api/queue", queueRoutes);
-} catch (error) {
-  console.warn("Queue routes not loaded:", error.message);
-}
-
-// --------------------------------------------------
-// 404 handler
-// --------------------------------------------------
+// ==================================================
+// 404 HANDLER
+// ==================================================
 
 app.use((req, res) => {
   res.status(404).json({
@@ -114,12 +179,12 @@ app.use((req, res) => {
   });
 });
 
-// --------------------------------------------------
-// Error handler
-// --------------------------------------------------
+// ==================================================
+// ERROR HANDLER
+// ==================================================
 
 app.use((err, req, res, next) => {
-  console.error("Server error:", err);
+  console.error("❌ Server error:", err);
 
   res.status(err.status || 500).json({
     success: false,
@@ -127,55 +192,42 @@ app.use((err, req, res, next) => {
   });
 });
 
-// --------------------------------------------------
-// Database migration (auto-creates tables if missing)
-// --------------------------------------------------
-
-async function runMigrations() {
-  const schemaPath = path.join(__dirname, "schema.sql");
-
-  if (!fs.existsSync(schemaPath)) {
-    console.warn("⚠️  schema.sql not found — skipping migration");
-    return;
-  }
-
-  const schema = fs.readFileSync(schemaPath, "utf8");
-
-  const statements = schema
-    .split(/;\s*[\r\n]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
-
-  for (const stmt of statements) {
-    if (stmt.trim()) {
-      await pool.query(stmt);
-    }
-  }
-
-  console.log("✅ Schema migration complete");
-}
-
-// --------------------------------------------------
-// Start server
-// --------------------------------------------------
+// ==================================================
+// START SERVER
+// ==================================================
 
 async function startServer() {
   try {
+    console.log("========================================");
+    console.log("       MedQueue Pro Backend");
+    console.log("========================================");
+
+    console.log("🔄 Testing MySQL connection...");
+
     await testConnection();
+
+    console.log("✅ MySQL connection successful.");
+
+    console.log("🔄 Checking database schema...");
+
     await runMigrations();
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log("========================================");
-      console.log("   MedQueue Pro Backend");
-      console.log("========================================");
-      console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-      console.log(`Port: ${PORT}`);
-      console.log("Server: http://0.0.0.0:" + PORT);
-      console.log("MySQL: Connected");
+      console.log("----------------------------------------");
+      console.log("🚀 MedQueue Pro Backend is running");
+      console.log(`🌐 Port: ${PORT}`);
+      console.log(`🏥 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log("----------------------------------------");
+      console.log("✅ Server started successfully");
       console.log("========================================");
     });
   } catch (error) {
-    console.error("Failed to start server:", error.message);
+    console.error("========================================");
+    console.error("❌ FAILED TO START SERVER");
+    console.error("========================================");
+    console.error(error.message);
+    console.error("========================================");
+
     process.exit(1);
   }
 }
