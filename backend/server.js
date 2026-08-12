@@ -11,73 +11,183 @@ const { pool, testConnection } = require("./database/db");
 
 const app = express();
 
-// ==================================================
-// PORT
-// ==================================================
+// ============================================================
+// SERVER CONFIGURATION
+// ============================================================
 
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 
-// ==================================================
+const NODE_ENV = process.env.NODE_ENV || "development";
+
+// ============================================================
 // SECURITY
-// ==================================================
-
-app.use(helmet());
+// ============================================================
 
 app.use(
-  cors({
-    origin: process.env.CLIENT_URL
-      ? process.env.CLIENT_URL.split(",").map((url) => url.trim())
-      : true,
-    credentials: true,
+  helmet({
+    crossOriginResourcePolicy: false,
   })
 );
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+// ============================================================
+// CORS
+// ============================================================
 
-const limiter = rateLimit({
+const allowedOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL
+      .split(",")
+      .map((url) => url.trim())
+      .filter(Boolean)
+  : [];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests without an Origin header
+      // such as health checks and server-to-server requests.
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Development mode
+      if (NODE_ENV !== "production" && allowedOrigins.length === 0) {
+        return callback(null, true);
+      }
+
+      // Production
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error("CORS: Origin not allowed")
+      );
+    },
+
+    credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+  })
+);
+
+// ============================================================
+// BODY PARSING
+// ============================================================
+
+app.use(
+  express.json({
+    limit: "10mb",
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  })
+);
+
+// ============================================================
+// RATE LIMITING
+// ============================================================
+
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
 });
 
-app.use("/api", limiter);
+app.use("/api", apiLimiter);
 
-// ==================================================
-// BASIC ROUTES
-// ==================================================
+// ============================================================
+// ROOT ROUTE
+// ============================================================
 
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "MedQueue Pro Backend is running",
-    environment: process.env.NODE_ENV || "development",
+    application: "MedQueue Pro",
+    message: "MedQueue Pro Backend is running successfully.",
+    environment: NODE_ENV,
+    status: "online",
     database: process.env.DB_NAME || "medqueue_pro",
-  });
-});
-
-app.get("/api/health", async (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "MedQueue Pro API is healthy",
     timestamp: new Date().toISOString(),
   });
 });
 
-// ==================================================
-// ROUTES
-// ==================================================
+// ============================================================
+// HEALTH CHECK
+// ============================================================
 
-function loadRoute(routePath, apiPath, routeName) {
+app.get("/api/health", async (req, res) => {
   try {
-    const route = require(routePath);
-    app.use(apiPath, route);
-    console.log(`✅ ${routeName} route loaded`);
+    const [rows] = await pool.query("SELECT 1 AS database_connection");
+
+    res.status(200).json({
+      success: true,
+      application: "MedQueue Pro",
+      server: "online",
+      database: rows[0].database_connection === 1
+        ? "connected"
+        : "unknown",
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
-    console.warn(`⚠️ ${routeName} route not loaded: ${error.message}`);
+    console.error(
+      "Health check database error:",
+      error.message
+    );
+
+    res.status(503).json({
+      success: false,
+      application: "MedQueue Pro",
+      server: "online",
+      database: "disconnected",
+      message: "Database connection unavailable.",
+    });
+  }
+});
+
+// ============================================================
+// ROUTE LOADER
+// ============================================================
+
+function loadRoute(file, endpoint, name) {
+  try {
+    const route = require(file);
+
+    app.use(endpoint, route);
+
+    console.log(`✅ ${name} routes loaded: ${endpoint}`);
+  } catch (error) {
+    console.warn(
+      `⚠️ ${name} routes could not be loaded:`,
+      error.message
+    );
   }
 }
+
+// ============================================================
+// APPLICATION ROUTES
+// ============================================================
 
 loadRoute(
   "./routes/authRoutes",
@@ -88,19 +198,19 @@ loadRoute(
 loadRoute(
   "./routes/appointmentRoutes",
   "/api/appointments",
-  "Appointments"
+  "Appointment"
 );
 
 loadRoute(
   "./routes/doctorRoutes",
   "/api/doctors",
-  "Doctors"
+  "Doctor"
 );
 
 loadRoute(
   "./routes/departmentRoutes",
   "/api/departments",
-  "Departments"
+  "Department"
 );
 
 loadRoute(
@@ -109,67 +219,106 @@ loadRoute(
   "Queue"
 );
 
-// ==================================================
-// DATABASE SCHEMA MIGRATION
-// ==================================================
+// ============================================================
+// DATABASE SCHEMA
+// ============================================================
 
-async function runMigrations() {
-  const schemaPath = path.join(__dirname, "schema.sql");
+async function runDatabaseSchema() {
+  const schemaPath = path.join(
+    __dirname,
+    "schema.sql"
+  );
 
+  // Check if schema.sql exists.
   if (!fs.existsSync(schemaPath)) {
     console.warn(
-      "⚠️ schema.sql was not found in the backend folder."
+      "⚠️ schema.sql was not found."
     );
+
     console.warn(
-      "⚠️ Database migration was skipped."
+      `Expected location: ${schemaPath}`
     );
+
+    console.warn(
+      "⚠️ Database schema installation skipped."
+    );
+
     return;
   }
 
-  console.log("📄 Loading schema.sql...");
-
-  const schema = fs.readFileSync(schemaPath, "utf8");
-
-  // Remove SQL comments
-  const cleanedSchema = schema
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith("--"))
-    .join("\n");
-
-  // Split SQL statements
-  const statements = cleanedSchema
-    .split(/;\s*(?:\r?\n|$)/)
-    .map((statement) => statement.trim())
-    .filter(Boolean);
-
   console.log(
-    `📊 Found ${statements.length} SQL statements.`
+    "📄 schema.sql found."
   );
 
-  for (const statement of statements) {
+  const schema = fs.readFileSync(
+    schemaPath,
+    "utf8"
+  );
+
+  // Remove SQL comments.
+  const cleanedSchema = schema
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !line.trim().startsWith("--")
+    )
+    .join("\n");
+
+  // Split ordinary SQL statements.
+  const statements = cleanedSchema
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(
+      (statement) => statement.length > 0
+    );
+
+  console.log(
+    `📊 Preparing ${statements.length} SQL statements...`
+  );
+
+  for (let i = 0; i < statements.length; i++) {
+    const statement = statements[i];
+
     try {
       await pool.query(statement);
+
+      console.log(
+        `✅ SQL statement ${i + 1}/${statements.length} completed`
+      );
     } catch (error) {
       console.error(
-        "❌ Migration statement failed:",
+        `❌ SQL statement ${i + 1} failed`
+      );
+
+      console.error(
         error.message
       );
 
       console.error(
         "SQL:",
-        statement.substring(0, 200)
+        statement.substring(0, 300)
       );
 
       throw error;
     }
   }
 
-  console.log("✅ Database schema migration completed.");
+  console.log(
+    "========================================"
+  );
+
+  console.log(
+    "✅ DATABASE SCHEMA READY"
+  );
+
+  console.log(
+    "========================================"
+  );
 }
 
-// ==================================================
+// ============================================================
 // 404 HANDLER
-// ==================================================
+// ============================================================
 
 app.use((req, res) => {
   res.status(404).json({
@@ -179,59 +328,155 @@ app.use((req, res) => {
   });
 });
 
-// ==================================================
-// ERROR HANDLER
-// ==================================================
+// ============================================================
+// GLOBAL ERROR HANDLER
+// ============================================================
 
-app.use((err, req, res, next) => {
-  console.error("❌ Server error:", err);
+app.use(
+  (error, req, res, next) => {
+    console.error(
+      "❌ Server error:",
+      error
+    );
 
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Internal server error",
-  });
-});
+    res.status(
+      error.status || 500
+    ).json({
+      success: false,
+      message:
+        error.message ||
+        "Internal server error.",
+    });
+  }
+);
 
-// ==================================================
+// ============================================================
 // START SERVER
-// ==================================================
+// ============================================================
 
 async function startServer() {
   try {
-    console.log("========================================");
-    console.log("       MedQueue Pro Backend");
-    console.log("========================================");
+    console.log("");
+    console.log(
+      "========================================"
+    );
+    console.log(
+      "       MEDQUEUE PRO BACKEND"
+    );
+    console.log(
+      "========================================"
+    );
 
-    console.log("🔄 Testing MySQL connection...");
+    console.log(
+      `Environment: ${NODE_ENV}`
+    );
 
+    console.log(
+      `Port: ${PORT}`
+    );
+
+    console.log(
+      "🔄 Connecting to MySQL..."
+    );
+
+    // Test MySQL.
     await testConnection();
 
-    console.log("✅ MySQL connection successful.");
+    console.log(
+      "✅ MySQL connection successful."
+    );
 
-    console.log("🔄 Checking database schema...");
+    // Create database tables from schema.sql.
+    console.log(
+      "🔄 Checking database schema..."
+    );
 
-    await runMigrations();
+    await runDatabaseSchema();
 
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log("----------------------------------------");
-      console.log("🚀 MedQueue Pro Backend is running");
-      console.log(`🌐 Port: ${PORT}`);
-      console.log(`🏥 Environment: ${process.env.NODE_ENV || "development"}`);
-      console.log("----------------------------------------");
-      console.log("✅ Server started successfully");
-      console.log("========================================");
-    });
+    // Start Express.
+    app.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
+        console.log("");
+        console.log(
+          "========================================"
+        );
+
+        console.log(
+          "🚀 MEDQUEUE PRO IS ONLINE"
+        );
+
+        console.log(
+          "========================================"
+        );
+
+        console.log(
+          `🌐 Port: ${PORT}`
+        );
+
+        console.log(
+          `🏥 Environment: ${NODE_ENV}`
+        );
+
+        console.log(
+          `🗄️ Database: ${
+            process.env.DB_NAME ||
+            "medqueue_pro"
+          }`
+        );
+
+        console.log(
+          "❤️ Health: /api/health"
+        );
+
+        console.log(
+          "========================================"
+        );
+
+        console.log(
+          "Server started successfully."
+        );
+
+        console.log(
+          "========================================"
+        );
+      }
+    );
   } catch (error) {
-    console.error("========================================");
-    console.error("❌ FAILED TO START SERVER");
-    console.error("========================================");
-    console.error(error.message);
-    console.error("========================================");
+    console.error("");
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      "❌ MEDQUEUE PRO FAILED TO START"
+    );
+
+    console.error(
+      "========================================"
+    );
+
+    console.error(
+      error.message
+    );
+
+    console.error(
+      "========================================"
+    );
 
     process.exit(1);
   }
 }
 
+// ============================================================
+// START APPLICATION
+// ============================================================
+
 startServer();
+
+// ============================================================
+// EXPORT APP
+// ============================================================
 
 module.exports = app;
