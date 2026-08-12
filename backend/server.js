@@ -7,16 +7,53 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
-const { pool, testConnection } = require("./database/db.js");
+// ============================================================
+// FIND DATABASE CONNECTION FILE
+// ============================================================
+
+let dbPath = null;
+
+const possibleDbPaths = [
+  path.join(__dirname, "database", "db.js"),
+  path.join(__dirname, "backend", "database", "db.js")
+];
+
+for (const possiblePath of possibleDbPaths) {
+  if (fs.existsSync(possiblePath)) {
+    dbPath = possiblePath;
+    break;
+  }
+}
+
+if (!dbPath) {
+  console.error("========================================");
+  console.error("❌ DATABASE FILE NOT FOUND");
+  console.error("========================================");
+
+  console.error("Railway checked:");
+
+  possibleDbPaths.forEach((file) => {
+    console.error(file);
+  });
+
+  process.exit(1);
+}
+
+console.log("✅ Database file found:", dbPath);
+
+const { pool, testConnection } = require(dbPath);
+
+// ============================================================
+// EXPRESS APP
+// ============================================================
 
 const app = express();
 
-// ============================================================
-// SERVER CONFIGURATION
-// ============================================================
-
+// Railway automatically provides PORT.
 const PORT = Number(process.env.PORT) || 5000;
-const NODE_ENV = process.env.NODE_ENV || "development";
+
+const NODE_ENV =
+  process.env.NODE_ENV || "development";
 
 // ============================================================
 // SECURITY
@@ -42,12 +79,13 @@ const allowedOrigins = process.env.CLIENT_URL
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests without an Origin header
+
+      // Allow requests without Origin.
       if (!origin) {
         return callback(null, true);
       }
 
-      // Allow all origins during development
+      // Development mode.
       if (
         NODE_ENV !== "production" &&
         allowedOrigins.length === 0
@@ -55,7 +93,7 @@ app.use(
         return callback(null, true);
       }
 
-      // Allow configured frontend origins
+      // Production frontend.
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -101,7 +139,7 @@ app.use(
 );
 
 // ============================================================
-// RATE LIMITING
+// RATE LIMIT
 // ============================================================
 
 const apiLimiter = rateLimit({
@@ -113,7 +151,8 @@ const apiLimiter = rateLimit({
 
   message: {
     success: false,
-    message: "Too many requests. Please try again later."
+    message:
+      "Too many requests. Please try again later."
   }
 });
 
@@ -127,11 +166,20 @@ app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
     application: "MedQueue Pro",
-    message: "MedQueue Pro Backend is running successfully.",
-    environment: NODE_ENV,
+
+    message:
+      "MedQueue Pro Backend is running successfully.",
+
     status: "online",
-    database: process.env.DB_NAME || "Railway MySQL",
-    timestamp: new Date().toISOString()
+
+    environment: NODE_ENV,
+
+    database:
+      process.env.DB_NAME ||
+      "Railway MySQL",
+
+    timestamp:
+      new Date().toISOString()
   });
 });
 
@@ -140,17 +188,29 @@ app.get("/", (req, res) => {
 // ============================================================
 
 app.get("/api/health", async (req, res) => {
+
   try {
+
     await pool.query("SELECT 1");
 
     res.status(200).json({
       success: true,
-      application: "MedQueue Pro",
-      server: "online",
-      database: "connected",
-      timestamp: new Date().toISOString()
+
+      application:
+        "MedQueue Pro",
+
+      server:
+        "online",
+
+      database:
+        "connected",
+
+      timestamp:
+        new Date().toISOString()
     });
+
   } catch (error) {
+
     console.error(
       "❌ Health check database error:",
       error.message
@@ -158,10 +218,18 @@ app.get("/api/health", async (req, res) => {
 
     res.status(503).json({
       success: false,
-      application: "MedQueue Pro",
-      server: "online",
-      database: "disconnected",
-      message: "Database connection unavailable."
+
+      application:
+        "MedQueue Pro",
+
+      server:
+        "online",
+
+      database:
+        "disconnected",
+
+      message:
+        "Database connection unavailable."
     });
   }
 });
@@ -170,20 +238,50 @@ app.get("/api/health", async (req, res) => {
 // ROUTE LOADER
 // ============================================================
 
-function loadRoute(file, endpoint, name) {
-  try {
-    const route = require(file);
+function loadRoute(
+  possibleFiles,
+  endpoint,
+  name
+) {
 
-    app.use(endpoint, route);
+  for (const file of possibleFiles) {
 
-    console.log(
-      `✅ ${name} routes loaded at ${endpoint}`
-    );
-  } catch (error) {
-    console.warn(
-      `⚠️ ${name} routes were not loaded: ${error.message}`
-    );
+    const fullPath =
+      path.join(__dirname, file);
+
+    if (fs.existsSync(fullPath)) {
+
+      try {
+
+        const route =
+          require(fullPath);
+
+        app.use(
+          endpoint,
+          route
+        );
+
+        console.log(
+          `✅ ${name} routes loaded: ${endpoint}`
+        );
+
+        return;
+
+      } catch (error) {
+
+        console.warn(
+          `⚠️ ${name} route error:`,
+          error.message
+        );
+
+        return;
+      }
+    }
   }
+
+  console.warn(
+    `⚠️ ${name} route file not found.`
+  );
 }
 
 // ============================================================
@@ -191,46 +289,66 @@ function loadRoute(file, endpoint, name) {
 // ============================================================
 
 loadRoute(
-  "./routes/authRoutes.js",
+  [
+    "routes/authRoutes.js",
+    "routes/auth.js"
+  ],
   "/api/auth",
   "Authentication"
 );
 
 loadRoute(
-  "./routes/appointmentRoutes.js",
+  [
+    "routes/appointmentRoutes.js",
+    "routes/appointments.js"
+  ],
   "/api/appointments",
   "Appointments"
 );
 
 loadRoute(
-  "./routes/doctorRoutes.js",
+  [
+    "routes/doctorRoutes.js",
+    "routes/doctors.js"
+  ],
   "/api/doctors",
   "Doctors"
 );
 
 loadRoute(
-  "./routes/departmentRoutes.js",
+  [
+    "routes/departmentRoutes.js",
+    "routes/departments.js"
+  ],
   "/api/departments",
   "Departments"
 );
 
 loadRoute(
-  "./routes/queueRoutes.js",
+  [
+    "routes/queueRoutes.js",
+    "routes/queue.js"
+  ],
   "/api/queue",
   "Queue"
 );
 
 // ============================================================
-// DATABASE SCHEMA MIGRATION
+// DATABASE SCHEMA
 // ============================================================
 
 async function runDatabaseSchema() {
-  const schemaPath = path.join(
-    __dirname,
-    "schema.sql"
-  );
 
-  if (!fs.existsSync(schemaPath)) {
+  const schemaPath =
+    path.join(
+      __dirname,
+      "schema.sql"
+    );
+
+  if (
+    !fs.existsSync(schemaPath)
+  ) {
+
     console.warn(
       "⚠️ schema.sql was not found."
     );
@@ -250,28 +368,33 @@ async function runDatabaseSchema() {
     "📄 schema.sql found."
   );
 
-  const schema = fs.readFileSync(
-    schemaPath,
-    "utf8"
-  );
+  const schema =
+    fs.readFileSync(
+      schemaPath,
+      "utf8"
+    );
 
-  // Remove SQL comments
-  const cleanedSchema = schema
-    .split(/\r?\n/)
-    .filter(
-      (line) =>
-        !line.trim().startsWith("--")
-    )
-    .join("\n");
+  // Remove SQL comments.
+  const cleanedSchema =
+    schema
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          !line
+            .trim()
+            .startsWith("--")
+      )
+      .join("\n");
 
-  // Split SQL commands
-  const statements = cleanedSchema
-    .split(";")
-    .map(
-      (statement) =>
-        statement.trim()
-    )
-    .filter(Boolean);
+  // Split SQL statements.
+  const statements =
+    cleanedSchema
+      .split(";")
+      .map(
+        (statement) =>
+          statement.trim()
+      )
+      .filter(Boolean);
 
   console.log(
     `📊 Found ${statements.length} SQL statements.`
@@ -282,7 +405,9 @@ async function runDatabaseSchema() {
     i < statements.length;
     i++
   ) {
+
     try {
+
       await pool.query(
         statements[i]
       );
@@ -292,7 +417,9 @@ async function runDatabaseSchema() {
           i + 1
         }/${statements.length} completed`
       );
+
     } catch (error) {
+
       console.error(
         `❌ SQL statement ${
           i + 1
@@ -329,20 +456,34 @@ async function runDatabaseSchema() {
 // 404 HANDLER
 // ============================================================
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-    path: req.originalUrl
-  });
-});
+app.use(
+  (req, res) => {
+
+    res.status(404).json({
+
+      success: false,
+
+      message:
+        "Route not found",
+
+      path:
+        req.originalUrl
+    });
+  }
+);
 
 // ============================================================
-// GLOBAL ERROR HANDLER
+// ERROR HANDLER
 // ============================================================
 
 app.use(
-  (error, req, res, next) => {
+  (
+    error,
+    req,
+    res,
+    next
+  ) => {
+
     console.error(
       "❌ Server error:",
       error.message
@@ -351,7 +492,9 @@ app.use(
     res.status(
       error.status || 500
     ).json({
+
       success: false,
+
       message:
         error.message ||
         "Internal server error."
@@ -364,7 +507,9 @@ app.use(
 // ============================================================
 
 async function startServer() {
+
   try {
+
     console.log("");
     console.log(
       "========================================"
@@ -390,26 +535,28 @@ async function startServer() {
       "🔄 Connecting to MySQL..."
     );
 
-    // Test database connection
+    // Test MySQL.
     await testConnection();
 
     console.log(
       "✅ MySQL connection successful."
     );
 
-    // Run database schema
+    // Run database schema.
     console.log(
       "🔄 Checking database schema..."
     );
 
     await runDatabaseSchema();
 
-    // Start Express server
+    // Start Express.
     app.listen(
       PORT,
       "0.0.0.0",
       () => {
+
         console.log("");
+
         console.log(
           "========================================"
         );
@@ -438,7 +585,7 @@ async function startServer() {
         );
 
         console.log(
-          "❤️ Health endpoint: /api/health"
+          "❤️ Health: /api/health"
         );
 
         console.log(
@@ -454,8 +601,11 @@ async function startServer() {
         );
       }
     );
+
   } catch (error) {
+
     console.error("");
+
     console.error(
       "========================================"
     );
