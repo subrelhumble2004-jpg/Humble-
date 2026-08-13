@@ -7,7 +7,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
-const { pool, testConnection } = require("./db.js");
+const { pool, testConnection } = require("./config/db.js");
 
 const app = express();
 
@@ -249,6 +249,7 @@ loadRoute(
 async function runDatabaseSchema() {
   const schemaPath = path.join(
     __dirname,
+    "database",
     "schema.sql"
   );
 
@@ -377,12 +378,15 @@ app.use(
 async function startServer() {
   try {
     console.log("");
+
     console.log(
       "========================================"
     );
+
     console.log(
       "        MEDQUEUE PRO BACKEND"
     );
+
     console.log(
       "========================================"
     );
@@ -396,7 +400,7 @@ async function startServer() {
     );
 
     console.log(
-      "📁 Database module: ./db.js"
+      "📁 Database module: ./config/db.js"
     );
 
     console.log(
@@ -420,6 +424,7 @@ async function startServer() {
       "0.0.0.0",
       () => {
         console.log("");
+
         console.log(
           "========================================"
         );
@@ -466,6 +471,7 @@ async function startServer() {
     );
   } catch (error) {
     console.error("");
+
     console.error(
       "========================================"
     );
