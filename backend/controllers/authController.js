@@ -1,42 +1,64 @@
 const bcrypt = require("bcryptjs");
 const { pool } = require("../config/db");
+
 const {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
 } = require("../utils/jwt");
+
 const { ApiError } = require("../middleware/errorHandler");
+
 const SALT_ROUNDS =
   Number(process.env.BCRYPT_SALT_ROUNDS) || 12;
+
+// ============================================================
+// REGISTER
 // @route POST /api/auth/register
+// ============================================================
+
 async function register(req, res, next) {
   try {
-    const { fullName, email, phone, password } = req.body;
+    const {
+      fullName,
+      email,
+      phone,
+      password,
+    } = req.body;
+
+    // Validate required fields
     if (!fullName || !email || !password) {
       throw new ApiError(
         400,
         "Full name, email and password are required"
       );
     }
-    const normalizedEmail = email.trim().toLowerCase();
-    // Check whether the email already exists
+
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    // Check whether email already exists
     const [existing] = await pool.query(
       "SELECT id FROM users WHERE email = ?",
       [normalizedEmail]
     );
+
     if (existing.length > 0) {
       throw new ApiError(
         409,
         "An account with this email already exists"
       );
     }
+
     // Hash password
     const passwordHash = await bcrypt.hash(
       password,
       SALT_ROUNDS
     );
+
     // Public registration can only create patients
     const safeRole = "patient";
+
     // Create user
     const [result] = await pool.query(
       `INSERT INTO users
@@ -45,26 +67,38 @@ async function register(req, res, next) {
       [
         fullName.trim(),
         normalizedEmail,
-        phone ? phone.trim() : null,
+        phone
+          ? phone.trim()
+          : null,
         passwordHash,
         safeRole,
       ]
     );
-    // Create patient record
-    await pool.query(
-      "INSERT INTO patients (user_id) VALUES (?)",
-      [result.insertId]
-    );
+
+    // IMPORTANT:
+    // The current MedQueue Pro database schema does not
+    // contain a separate "patients" table.
+    //
+    // Patients are represented by users with role = "patient".
+    // Therefore, we do NOT insert into patients here.
+
     const payload = {
       id: result.insertId,
       email: normalizedEmail,
       role: safeRole,
     };
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
+
+    // Generate tokens
+    const accessToken =
+      signAccessToken(payload);
+
+    const refreshToken =
+      signRefreshToken(payload);
+
     return res.status(201).json({
       success: true,
       message: "Account created successfully",
+
       data: {
         user: {
           id: result.insertId,
@@ -72,40 +106,65 @@ async function register(req, res, next) {
           email: normalizedEmail,
           role: safeRole,
         },
+
         accessToken,
         refreshToken,
       },
     });
   } catch (err) {
-    console.error("Registration error:", err);
+    console.error(
+      "Registration error:",
+      err
+    );
+
     next(err);
   }
 }
+
+// ============================================================
+// LOGIN
 // @route POST /api/auth/login
+// ============================================================
+
 async function login(req, res, next) {
   try {
-    const { email, password } = req.body;
+    const {
+      email,
+      password,
+    } = req.body;
+
+    // Validate required fields
     if (!email || !password) {
       throw new ApiError(
         400,
         "Email and password are required"
       );
     }
-    const normalizedEmail = email.trim().toLowerCase();
+
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    // Find user
     const [rows] = await pool.query(
       "SELECT * FROM users WHERE email = ?",
       [normalizedEmail]
     );
+
     if (!rows.length) {
       throw new ApiError(
         401,
         "Invalid email or password"
       );
     }
+
     const user = rows[0];
-    // Only check is_active if the column exists in your users table
+
+    // Check whether account is active
     if (
-      Object.prototype.hasOwnProperty.call(user, "is_active") &&
+      Object.prototype.hasOwnProperty.call(
+        user,
+        "is_active"
+      ) &&
       !user.is_active
     ) {
       throw new ApiError(
@@ -113,34 +172,49 @@ async function login(req, res, next) {
         "This account has been deactivated"
       );
     }
-    const match = await bcrypt.compare(
-      password,
-      user.password_hash
-    );
+
+    // Compare password
+    const match =
+      await bcrypt.compare(
+        password,
+        user.password_hash
+      );
+
     if (!match) {
       throw new ApiError(
         401,
         "Invalid email or password"
       );
     }
+
+    // JWT payload
     const payload = {
       id: user.id,
       email: user.email,
       role: user.role,
     };
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
+
+    // Generate tokens
+    const accessToken =
+      signAccessToken(payload);
+
+    const refreshToken =
+      signRefreshToken(payload);
+
     return res.json({
       success: true,
       message: "Login successful",
+
       data: {
         user: {
           id: user.id,
           fullName: user.full_name,
           email: user.email,
           role: user.role,
-          avatarUrl: user.avatar_url || null,
+          avatarUrl:
+            user.avatar_url || null,
         },
+
         accessToken,
         refreshToken,
       },
@@ -149,24 +223,40 @@ async function login(req, res, next) {
     next(err);
   }
 }
+
+// ============================================================
+// REFRESH TOKEN
 // @route POST /api/auth/refresh
+// ============================================================
+
 async function refresh(req, res, next) {
   try {
-    const { refreshToken } = req.body;
+    const {
+      refreshToken,
+    } = req.body;
+
     if (!refreshToken) {
       throw new ApiError(
         400,
         "Refresh token is required"
       );
     }
-    const decoded = verifyRefreshToken(refreshToken);
-    const accessToken = signAccessToken({
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
-    });
+
+    const decoded =
+      verifyRefreshToken(
+        refreshToken
+      );
+
+    const accessToken =
+      signAccessToken({
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+      });
+
     return res.json({
       success: true,
+
       data: {
         accessToken,
       },
@@ -180,37 +270,50 @@ async function refresh(req, res, next) {
     );
   }
 }
+
+// ============================================================
+// GET CURRENT USER
 // @route GET /api/auth/me
+// ============================================================
+
 async function getMe(req, res, next) {
   try {
-    const [rows] = await pool.query(
-      `SELECT
-        id,
-        full_name,
-        email,
-        phone,
-        role,
-        avatar_url,
-        created_at
-       FROM users
-       WHERE id = ?`,
-      [req.user.id]
-    );
+    const [rows] =
+      await pool.query(
+        `SELECT
+          id,
+          full_name,
+          email,
+          phone,
+          role,
+          avatar_url,
+          created_at
+         FROM users
+         WHERE id = ?`,
+        [req.user.id]
+      );
+
     if (!rows.length) {
       throw new ApiError(
         404,
         "User not found"
       );
     }
+
     return res.json({
       success: true,
+
       data: rows[0],
     });
   } catch (err) {
     next(err);
   }
 }
-// IMPORTANT: Export all controller functions
+
+// ============================================================
+// EXPORT
+// ============================================================
+
 module.exports = {
   register,
   login,
