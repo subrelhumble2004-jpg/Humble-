@@ -1,24 +1,32 @@
 import axios from "axios";
 
-// Central Axios client wired to the Express + MySQL backend
-// (see the /backend project — every function below maps 1:1 to a route there).
-
+// Central Axios client wired to the Express + MySQL backend.
 export const api = axios.create({
   baseURL:
     process.env.NEXT_PUBLIC_API_URL ||
     "https://humble-production.up.railway.app/api",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
+// Automatically attach the logged-in user's JWT token.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("mqp_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
+
   return config;
 });
 
-// ---- Auth ----
+// =========================================================
+// AUTH
+// =========================================================
+
 export const registerPatient = (data: {
   fullName: string;
   email: string;
@@ -36,7 +44,10 @@ export const login = (data: {
 export const getMe = () =>
   api.get("/auth/me");
 
-// ---- Departments & Doctors ----
+// =========================================================
+// DEPARTMENTS & DOCTORS
+// =========================================================
+
 export const fetchDepartments = () =>
   api.get("/departments");
 
@@ -44,9 +55,14 @@ export const fetchDoctors = (params?: {
   department?: string;
   status?: string;
 }) =>
-  api.get("/doctors", { params });
+  api.get("/doctors", {
+    params,
+  });
 
-// ---- Appointments ----
+// =========================================================
+// APPOINTMENTS
+// =========================================================
+
 export const bookAppointment = (data: {
   doctorId: number;
   departmentId: number;
@@ -58,6 +74,30 @@ export const bookAppointment = (data: {
 
 export const fetchMyAppointments = () =>
   api.get("/appointments/me");
+
+// Doctor: get appointments belonging to this doctor.
+export const fetchDoctorAppointments = (
+  doctorId: number,
+  date?: string
+) =>
+  api.get(`/appointments/doctor/${doctorId}`, {
+    params: date ? { date } : undefined,
+  });
+
+// Doctor/Admin: update appointment status.
+export const updateAppointmentStatus = (
+  id: number,
+  status:
+    | "pending"
+    | "confirmed"
+    | "in_session"
+    | "completed"
+    | "cancelled"
+    | "missed"
+) =>
+  api.patch(`/appointments/${id}/status`, {
+    status,
+  });
 
 export const cancelAppointment = (id: number) =>
   api.patch(`/appointments/${id}/cancel`);
@@ -71,14 +111,20 @@ export const rescheduleAppointment = (
 ) =>
   api.patch(`/appointments/${id}/reschedule`, data);
 
-// ---- Queue ----
+// =========================================================
+// QUEUE
+// =========================================================
+
 export const fetchDepartmentQueue = (departmentId: number) =>
   api.get(`/queue/${departmentId}`);
 
 export const fetchQueuePosition = (appointmentId: number) =>
   api.get(`/queue/appointment/${appointmentId}/position`);
 
-// ---- Admin ----
+// =========================================================
+// ADMIN
+// =========================================================
+
 export const fetchAdminStats = () =>
   api.get("/admin/stats");
 
