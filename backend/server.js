@@ -8,10 +8,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
 const { pool, testConnection } = require("./config/db.js");
-const {
-  notFound,
-  errorHandler
-} = require("./middleware/errorHandler.js");
+const { notFound, errorHandler } = require("./middleware/errorHandler.js");
 
 const app = express();
 
@@ -24,7 +21,7 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: false
+    crossOriginResourcePolicy: false,
   })
 );
 
@@ -42,17 +39,15 @@ const allowedOrigins = process.env.CLIENT_URL
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin.
-      // Useful for health checks and server-to-server requests.
+      // Allow requests without an Origin header
+      // (mobile apps, Postman, server-to-server requests, etc.)
       if (!origin) {
         return callback(null, true);
       }
 
-      // Development mode can work without CLIENT_URL configured.
-      if (
-        NODE_ENV !== "production" &&
-        allowedOrigins.length === 0
-      ) {
+      // During local development, allow requests if no
+      // CLIENT_URL has been configured yet.
+      if (NODE_ENV !== "production" && allowedOrigins.length === 0) {
         return callback(null, true);
       }
 
@@ -60,26 +55,11 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(
-        new Error("CORS: Origin not allowed")
-      );
+      return callback(new Error("CORS: Origin not allowed"));
     },
-
     credentials: true,
-
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS"
-    ],
-
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization"
-    ]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
@@ -89,14 +69,14 @@ app.use(
 
 app.use(
   express.json({
-    limit: "10mb"
+    limit: "10mb",
   })
 );
 
 app.use(
   express.urlencoded({
     extended: true,
-    limit: "10mb"
+    limit: "10mb",
   })
 );
 
@@ -105,21 +85,24 @@ app.use(
 // ============================================================
 
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs:
+    Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+
   max: Number(process.env.RATE_LIMIT_MAX) || 200,
+
   standardHeaders: true,
   legacyHeaders: false,
 
   message: {
     success: false,
-    message: "Too many requests. Please try again later."
-  }
+    message: "Too many requests. Please try again later.",
+  },
 });
 
 app.use("/api", apiLimiter);
 
 // ============================================================
-// ROOT
+// ROOT ROUTE
 // ============================================================
 
 app.get("/", (req, res) => {
@@ -130,7 +113,7 @@ app.get("/", (req, res) => {
     status: "online",
     environment: NODE_ENV,
     database: process.env.DB_NAME || "Not configured",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -147,7 +130,7 @@ app.get("/api/health", async (req, res) => {
       application: "MedQueue Pro",
       server: "online",
       database: "connected",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error(
@@ -160,7 +143,7 @@ app.get("/api/health", async (req, res) => {
       application: "MedQueue Pro",
       server: "online",
       database: "disconnected",
-      message: "Database connection unavailable."
+      message: "Database connection unavailable.",
     });
   }
 });
@@ -182,15 +165,10 @@ function loadRoute(files, endpoint, name) {
 
       app.use(endpoint, route);
 
-      console.log(
-        `✅ ${name} routes loaded: ${endpoint}`
-      );
+      console.log(`✅ ${name} routes loaded: ${endpoint}`);
 
       return;
     } catch (error) {
-      // A route file exists but cannot load.
-      // This should stop deployment/startup instead of
-      // silently running an incomplete API.
       console.error(
         `❌ ${name} routes failed to load:`,
         error.message
@@ -200,66 +178,58 @@ function loadRoute(files, endpoint, name) {
     }
   }
 
-  console.error(
-    `❌ ${name} route file not found.`
-  );
+  console.error(`❌ ${name} route file not found.`);
 
-  throw new Error(
-    `${name} route file is missing.`
-  );
+  throw new Error(`${name} route file is missing.`);
 }
 
 // ============================================================
-// ROUTES
+// API ROUTES
 // ============================================================
 
 loadRoute(
-  [
-    "routes/authRoutes.js",
-    "routes/auth.js"
-  ],
+  ["routes/authRoutes.js", "routes/auth.js"],
   "/api/auth",
   "Authentication"
 );
 
 loadRoute(
-  [
-    "routes/appointmentRoutes.js",
-    "routes/appointments.js"
-  ],
+  ["routes/appointmentRoutes.js", "routes/appointments.js"],
   "/api/appointments",
   "Appointments"
 );
 
 loadRoute(
-  [
-    "routes/doctorRoutes.js",
-    "routes/doctors.js"
-  ],
+  ["routes/doctorRoutes.js", "routes/doctors.js"],
   "/api/doctors",
   "Doctors"
 );
 
 loadRoute(
-  [
-    "routes/departmentRoutes.js",
-    "routes/departments.js"
-  ],
+  ["routes/departmentRoutes.js", "routes/departments.js"],
   "/api/departments",
   "Departments"
 );
 
 loadRoute(
-  [
-    "routes/queueRoutes.js",
-    "routes/queue.js"
-  ],
+  ["routes/queueRoutes.js", "routes/queue.js"],
   "/api/queue",
   "Queue"
 );
 
 // ============================================================
-// 404
+// ADMIN ROUTES
+// IMPORTANT: This connects /api/admin to adminRoutes.js
+// ============================================================
+
+loadRoute(
+  ["routes/adminRoutes.js", "routes/admin.js"],
+  "/api/admin",
+  "Admin"
+);
+
+// ============================================================
+// 404 HANDLER
 // ============================================================
 
 app.use(notFound);
@@ -283,6 +253,7 @@ async function startServer() {
 
     console.log(`Environment: ${NODE_ENV}`);
     console.log(`Port: ${PORT}`);
+
     console.log("📁 Database module: ./config/db.js");
 
     console.log("🔄 Connecting to MySQL...");
@@ -299,29 +270,25 @@ async function startServer() {
     console.log(`🌐 Port: ${PORT}`);
     console.log(`🏥 Environment: ${NODE_ENV}`);
     console.log(
-      `🗄️ Database: ${
-        process.env.DB_NAME || "Not configured"
-      }`
+      `🗄️ Database: ${process.env.DB_NAME || "Not configured"}`
     );
+
     console.log("❤️ Health: /api/health");
 
     console.log("========================================");
 
-    app.listen(
-      PORT,
-      "0.0.0.0",
-      () => {
-        console.log(
-          `🚀 Server listening on port ${PORT}`
-        );
-      }
-    );
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Server listening on port ${PORT}`);
+    });
   } catch (error) {
     console.error("");
+
     console.error("========================================");
     console.error("❌ MEDQUEUE PRO FAILED TO START");
     console.error("========================================");
+
     console.error(error.message);
+
     console.error("========================================");
 
     process.exit(1);
@@ -329,7 +296,7 @@ async function startServer() {
 }
 
 // ============================================================
-// START
+// START ONLY WHEN THIS FILE IS RUN DIRECTLY
 // ============================================================
 
 if (require.main === module) {
@@ -337,7 +304,7 @@ if (require.main === module) {
 }
 
 // ============================================================
-// EXPORT
+// EXPORT APP
 // ============================================================
 
 module.exports = app;
