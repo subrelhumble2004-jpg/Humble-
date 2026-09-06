@@ -1,18 +1,18 @@
 const { pool } = require("../config/db");
 
 /**
- * Generates a daily queue number for a department.
+ * Generate a queue ticket number for a department and specific date.
  *
- * Example:
- * GM-001
- * GM-002
- * CARD-003
- *
- * The department prefix is generated from the department name,
- * so no `departments.code` column is required.
+ * @param {number} departmentId
+ * @param {string} queueDate - YYYY-MM-DD
+ * @param {object} connection - Optional MySQL connection/transaction
  */
-async function generateQueueNumber(departmentId) {
-  const [[department]] = await pool.query(
+async function generateQueueNumber(
+  departmentId,
+  queueDate,
+  connection = pool
+) {
+  const [[department]] = await connection.query(
     `
     SELECT name
     FROM departments
@@ -23,10 +23,12 @@ async function generateQueueNumber(departmentId) {
   );
 
   if (!department) {
-    throw new Error("Department not found while generating queue number.");
+    throw new Error(
+      "Department not found while generating queue number."
+    );
   }
 
-  // Generate a short department prefix from the department name.
+  // Create a short prefix from the department name.
   const prefix = department.name
     .split(/\s+/)
     .filter(Boolean)
@@ -37,14 +39,15 @@ async function generateQueueNumber(departmentId) {
 
   const safePrefix = prefix || "GEN";
 
-  const [[result]] = await pool.query(
+  // Count queue tickets for the ACTUAL queue date.
+  const [[result]] = await connection.query(
     `
     SELECT COUNT(*) AS count
     FROM queue_tickets
     WHERE department_id = ?
-      AND queue_date = CURDATE()
+      AND queue_date = ?
     `,
-    [departmentId]
+    [departmentId, queueDate]
   );
 
   const nextSequence = Number(result.count || 0) + 1;
