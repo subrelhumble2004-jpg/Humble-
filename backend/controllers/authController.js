@@ -14,7 +14,7 @@ const SALT_ROUNDS =
 
 // ============================================================
 // REGISTER
-// @route POST /api/auth/register
+// POST /api/auth/register
 // ============================================================
 
 async function register(req, res, next) {
@@ -26,7 +26,6 @@ async function register(req, res, next) {
       password,
     } = req.body;
 
-    // Validate required fields
     if (!fullName || !email || !password) {
       throw new ApiError(
         400,
@@ -34,12 +33,42 @@ async function register(req, res, next) {
       );
     }
 
-    const normalizedEmail =
-      email.trim().toLowerCase();
+    if (String(fullName).trim().length < 2) {
+      throw new ApiError(
+        400,
+        "Full name must contain at least 2 characters"
+      );
+    }
 
-    // Check whether email already exists
+    if (String(password).length < 8) {
+      throw new ApiError(
+        400,
+        "Password must be at least 8 characters"
+      );
+    }
+
+    const normalizedEmail =
+      String(email).trim().toLowerCase();
+
+    // Basic email validation
+    const emailRegex =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      throw new ApiError(
+        400,
+        "Please provide a valid email address"
+      );
+    }
+
+    // Check existing account
     const [existing] = await pool.query(
-      "SELECT id FROM users WHERE email = ?",
+      `
+      SELECT id
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+      `,
       [normalizedEmail]
     );
 
@@ -51,44 +80,56 @@ async function register(req, res, next) {
     }
 
     // Hash password
-    const passwordHash = await bcrypt.hash(
-      password,
-      SALT_ROUNDS
-    );
+    const passwordHash =
+      await bcrypt.hash(
+        password,
+        SALT_ROUNDS
+      );
 
-    // Public registration can only create patients
-    const safeRole = "patient";
+    // Public registration always creates patient
+    const role = "patient";
 
-    // Create user
     const [result] = await pool.query(
-      `INSERT INTO users
-       (full_name, email, phone, password_hash, role)
-       VALUES (?, ?, ?, ?, ?)`,
+      `
+      INSERT INTO users
+        (
+          full_name,
+          email,
+          phone,
+          password_hash,
+          role,
+          is_active
+        )
+      VALUES
+        (?, ?, ?, ?, ?, TRUE)
+      `,
       [
-        fullName.trim(),
+        String(fullName).trim(),
         normalizedEmail,
         phone
-          ? phone.trim()
+          ? String(phone).trim()
           : null,
         passwordHash,
-        safeRole,
+        role,
       ]
     );
 
-    // IMPORTANT:
-    // The current MedQueue Pro database schema does not
-    // contain a separate "patients" table.
-    //
-    // Patients are represented by users with role = "patient".
-    // Therefore, we do NOT insert into patients here.
-
-    const payload = {
+    const user = {
       id: result.insertId,
+      fullName: String(fullName).trim(),
       email: normalizedEmail,
-      role: safeRole,
+      phone: phone
+        ? String(phone).trim()
+        : null,
+      role,
     };
 
-    // Generate tokens
+    const payload = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
     const accessToken =
       signAccessToken(payload);
 
@@ -97,16 +138,11 @@ async function register(req, res, next) {
 
     return res.status(201).json({
       success: true,
-      message: "Account created successfully",
+      message:
+        "Account created successfully",
 
       data: {
-        user: {
-          id: result.insertId,
-          fullName: fullName.trim(),
-          email: normalizedEmail,
-          role: safeRole,
-        },
-
+        user,
         accessToken,
         refreshToken,
       },
@@ -114,7 +150,7 @@ async function register(req, res, next) {
   } catch (err) {
     console.error(
       "Registration error:",
-      err
+      err.message
     );
 
     next(err);
@@ -123,7 +159,7 @@ async function register(req, res, next) {
 
 // ============================================================
 // LOGIN
-// @route POST /api/auth/login
+// POST /api/auth/login
 // ============================================================
 
 async function login(req, res, next) {
@@ -133,7 +169,6 @@ async function login(req, res, next) {
       password,
     } = req.body;
 
-    // Validate required fields
     if (!email || !password) {
       throw new ApiError(
         400,
@@ -142,11 +177,27 @@ async function login(req, res, next) {
     }
 
     const normalizedEmail =
-      email.trim().toLowerCase();
+      String(email).trim().toLowerCase();
 
-    // Find user
     const [rows] = await pool.query(
-      "SELECT * FROM users WHERE email = ?",
+      `
+      SELECT
+        id,
+        full_name,
+        email,
+        phone,
+        password_hash,
+        role,
+        gender,
+        date_of_birth,
+        address,
+        is_active,
+        created_at,
+        updated_at
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+      `,
       [normalizedEmail]
     );
 
@@ -159,42 +210,34 @@ async function login(req, res, next) {
 
     const user = rows[0];
 
-    // Check whether account is active
-    if (
-      Object.prototype.hasOwnProperty.call(
-        user,
-        "is_active"
-      ) &&
-      !user.is_active
-    ) {
+    // Check active account
+    if (!user.is_active) {
       throw new ApiError(
         403,
         "This account has been deactivated"
       );
     }
 
-    // Compare password
-    const match =
+    // Verify password
+    const passwordMatches =
       await bcrypt.compare(
         password,
         user.password_hash
       );
 
-    if (!match) {
+    if (!passwordMatches) {
       throw new ApiError(
         401,
         "Invalid email or password"
       );
     }
 
-    // JWT payload
     const payload = {
       id: user.id,
       email: user.email,
       role: user.role,
     };
 
-    // Generate tokens
     const accessToken =
       signAccessToken(payload);
 
@@ -210,9 +253,18 @@ async function login(req, res, next) {
           id: user.id,
           fullName: user.full_name,
           email: user.email,
+          phone: user.phone,
           role: user.role,
-          avatarUrl:
-            user.avatar_url || null,
+          gender: user.gender,
+          dateOfBirth:
+            user.date_of_birth,
+          address: user.address,
+          isActive:
+            Boolean(user.is_active),
+          createdAt:
+            user.created_at,
+          updatedAt:
+            user.updated_at,
         },
 
         accessToken,
@@ -225,8 +277,8 @@ async function login(req, res, next) {
 }
 
 // ============================================================
-// REFRESH TOKEN
-// @route POST /api/auth/refresh
+// REFRESH ACCESS TOKEN
+// POST /api/auth/refresh
 // ============================================================
 
 async function refresh(req, res, next) {
@@ -247,11 +299,40 @@ async function refresh(req, res, next) {
         refreshToken
       );
 
+    // Make sure the account still exists
+    const [rows] = await pool.query(
+      `
+      SELECT
+        id,
+        email,
+        role,
+        is_active
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [decoded.id]
+    );
+
+    if (!rows.length) {
+      throw new ApiError(
+        401,
+        "User account no longer exists"
+      );
+    }
+
+    if (!rows[0].is_active) {
+      throw new ApiError(
+        401,
+        "User account has been deactivated"
+      );
+    }
+
     const accessToken =
       signAccessToken({
-        id: decoded.id,
-        email: decoded.email,
-        role: decoded.role,
+        id: rows[0].id,
+        email: rows[0].email,
+        role: rows[0].role,
       });
 
     return res.json({
@@ -262,6 +343,12 @@ async function refresh(req, res, next) {
       },
     });
   } catch (err) {
+    if (
+      err instanceof ApiError
+    ) {
+      return next(err);
+    }
+
     next(
       new ApiError(
         401,
@@ -273,25 +360,38 @@ async function refresh(req, res, next) {
 
 // ============================================================
 // GET CURRENT USER
-// @route GET /api/auth/me
+// GET /api/auth/me
 // ============================================================
 
 async function getMe(req, res, next) {
   try {
-    const [rows] =
-      await pool.query(
-        `SELECT
-          id,
-          full_name,
-          email,
-          phone,
-          role,
-          avatar_url,
-          created_at
-         FROM users
-         WHERE id = ?`,
-        [req.user.id]
+    if (!req.user || !req.user.id) {
+      throw new ApiError(
+        401,
+        "Authentication required"
       );
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        id,
+        full_name,
+        email,
+        phone,
+        role,
+        gender,
+        date_of_birth,
+        address,
+        is_active,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [req.user.id]
+    );
 
     if (!rows.length) {
       throw new ApiError(
@@ -300,10 +400,35 @@ async function getMe(req, res, next) {
       );
     }
 
+    const user = rows[0];
+
+    if (!user.is_active) {
+      throw new ApiError(
+        403,
+        "This account has been deactivated"
+      );
+    }
+
     return res.json({
       success: true,
 
-      data: rows[0],
+      data: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        gender: user.gender,
+        dateOfBirth:
+          user.date_of_birth,
+        address: user.address,
+        isActive:
+          Boolean(user.is_active),
+        createdAt:
+          user.created_at,
+        updatedAt:
+          user.updated_at,
+      },
     });
   } catch (err) {
     next(err);
