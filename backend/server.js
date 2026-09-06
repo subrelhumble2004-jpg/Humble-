@@ -8,6 +8,10 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
 const { pool, testConnection } = require("./config/db.js");
+const {
+  notFound,
+  errorHandler
+} = require("./middleware/errorHandler.js");
 
 const app = express();
 
@@ -38,10 +42,13 @@ const allowedOrigins = process.env.CLIENT_URL
 app.use(
   cors({
     origin: function (origin, callback) {
+      // Allow requests with no origin.
+      // Useful for health checks and server-to-server requests.
       if (!origin) {
         return callback(null, true);
       }
 
+      // Development mode can work without CLIENT_URL configured.
       if (
         NODE_ENV !== "production" &&
         allowedOrigins.length === 0
@@ -99,7 +106,7 @@ app.use(
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: Number(process.env.RATE_LIMIT_MAX) || 200,
   standardHeaders: true,
   legacyHeaders: false,
 
@@ -122,7 +129,7 @@ app.get("/", (req, res) => {
     message: "MedQueue Pro Backend is running successfully.",
     status: "online",
     environment: NODE_ENV,
-    database: process.env.DB_NAME || "Railway MySQL",
+    database: process.env.DB_NAME || "Not configured",
     timestamp: new Date().toISOString()
   });
 });
@@ -166,30 +173,39 @@ function loadRoute(files, endpoint, name) {
   for (const file of files) {
     const fullPath = path.join(__dirname, file);
 
-    if (fs.existsSync(fullPath)) {
-      try {
-        const route = require(fullPath);
+    if (!fs.existsSync(fullPath)) {
+      continue;
+    }
 
-        app.use(endpoint, route);
+    try {
+      const route = require(fullPath);
 
-        console.log(
-          `✅ ${name} routes loaded: ${endpoint}`
-        );
+      app.use(endpoint, route);
 
-        return;
-      } catch (error) {
-        console.warn(
-          `⚠️ ${name} routes failed:`,
-          error.message
-        );
+      console.log(
+        `✅ ${name} routes loaded: ${endpoint}`
+      );
 
-        return;
-      }
+      return;
+    } catch (error) {
+      // A route file exists but cannot load.
+      // This should stop deployment/startup instead of
+      // silently running an incomplete API.
+      console.error(
+        `❌ ${name} routes failed to load:`,
+        error.message
+      );
+
+      throw error;
     }
   }
 
-  console.warn(
-    `⚠️ ${name} route file not found.`
+  console.error(
+    `❌ ${name} route file not found.`
+  );
+
+  throw new Error(
+    `${name} route file is missing.`
   );
 }
 
@@ -243,133 +259,16 @@ loadRoute(
 );
 
 // ============================================================
-// DATABASE SCHEMA
-// ============================================================
-
-async function runDatabaseSchema() {
-  const schemaPath = path.join(
-    __dirname,
-    "database",
-    "schema.sql"
-  );
-
-  if (!fs.existsSync(schemaPath)) {
-    console.warn(
-      "⚠️ schema.sql was not found."
-    );
-
-    console.warn(
-      `Expected location: ${schemaPath}`
-    );
-
-    console.warn(
-      "⚠️ Database migration skipped."
-    );
-
-    return;
-  }
-
-  console.log(
-    "📄 schema.sql found."
-  );
-
-  const schema = fs.readFileSync(
-    schemaPath,
-    "utf8"
-  );
-
-  const cleanedSchema = schema
-    .split(/\r?\n/)
-    .filter(
-      (line) =>
-        !line.trim().startsWith("--")
-    )
-    .join("\n");
-
-  const statements = cleanedSchema
-    .split(";")
-    .map(
-      (statement) =>
-        statement.trim()
-    )
-    .filter(Boolean);
-
-  console.log(
-    `📊 Found ${statements.length} SQL statements.`
-  );
-
-  for (
-    let i = 0;
-    i < statements.length;
-    i++
-  ) {
-    try {
-      await pool.query(statements[i]);
-
-      console.log(
-        `✅ SQL statement ${i + 1}/${statements.length} completed`
-      );
-    } catch (error) {
-      console.error(
-        `❌ SQL statement ${i + 1} failed:`,
-        error.message
-      );
-
-      console.error(
-        "SQL:",
-        statements[i].substring(0, 300)
-      );
-
-      throw error;
-    }
-  }
-
-  console.log(
-    "========================================"
-  );
-
-  console.log(
-    "✅ DATABASE SCHEMA READY"
-  );
-
-  console.log(
-    "========================================"
-  );
-}
-
-// ============================================================
 // 404
 // ============================================================
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-    path: req.originalUrl
-  });
-});
+app.use(notFound);
 
 // ============================================================
-// ERROR HANDLER
+// GLOBAL ERROR HANDLER
 // ============================================================
 
-app.use(
-  (error, req, res, next) => {
-    console.error(
-      "❌ Server error:",
-      error.message
-    );
-
-    res.status(
-      error.status || 500
-    ).json({
-      success: false,
-      message:
-        error.message ||
-        "Internal server error."
-    });
-  }
-);
+app.use(errorHandler);
 
 // ============================================================
 // START SERVER
@@ -378,119 +277,52 @@ app.use(
 async function startServer() {
   try {
     console.log("");
+    console.log("========================================");
+    console.log("        MEDQUEUE PRO BACKEND");
+    console.log("========================================");
 
-    console.log(
-      "========================================"
-    );
+    console.log(`Environment: ${NODE_ENV}`);
+    console.log(`Port: ${PORT}`);
+    console.log("📁 Database module: ./config/db.js");
 
-    console.log(
-      "        MEDQUEUE PRO BACKEND"
-    );
-
-    console.log(
-      "========================================"
-    );
-
-    console.log(
-      `Environment: ${NODE_ENV}`
-    );
-
-    console.log(
-      `Port: ${PORT}`
-    );
-
-    console.log(
-      "📁 Database module: ./config/db.js"
-    );
-
-    console.log(
-      "🔄 Connecting to MySQL..."
-    );
+    console.log("🔄 Connecting to MySQL...");
 
     await testConnection();
 
-    console.log(
-      "✅ MySQL connection successful."
-    );
+    console.log("✅ MySQL connection successful.");
 
-    console.log(
-      "🔄 Checking database schema..."
-    );
+    console.log("");
+    console.log("========================================");
+    console.log("🚀 MEDQUEUE PRO BACKEND READY");
+    console.log("========================================");
 
-    await runDatabaseSchema();
+    console.log(`🌐 Port: ${PORT}`);
+    console.log(`🏥 Environment: ${NODE_ENV}`);
+    console.log(
+      `🗄️ Database: ${
+        process.env.DB_NAME || "Not configured"
+      }`
+    );
+    console.log("❤️ Health: /api/health");
+
+    console.log("========================================");
 
     app.listen(
       PORT,
       "0.0.0.0",
       () => {
-        console.log("");
-
         console.log(
-          "========================================"
-        );
-
-        console.log(
-          "🚀 MEDQUEUE PRO IS ONLINE"
-        );
-
-        console.log(
-          "========================================"
-        );
-
-        console.log(
-          `🌐 Port: ${PORT}`
-        );
-
-        console.log(
-          `🏥 Environment: ${NODE_ENV}`
-        );
-
-        console.log(
-          `🗄️ Database: ${
-            process.env.DB_NAME ||
-            "Railway MySQL"
-          }`
-        );
-
-        console.log(
-          "❤️ Health: /api/health"
-        );
-
-        console.log(
-          "========================================"
-        );
-
-        console.log(
-          "Server started successfully."
-        );
-
-        console.log(
-          "========================================"
+          `🚀 Server listening on port ${PORT}`
         );
       }
     );
   } catch (error) {
     console.error("");
-
-    console.error(
-      "========================================"
-    );
-
-    console.error(
-      "❌ MEDQUEUE PRO FAILED TO START"
-    );
-
-    console.error(
-      "========================================"
-    );
-
-    console.error(
-      error.message
-    );
-
-    console.error(
-      "========================================"
-    );
+    console.error("========================================");
+    console.error("❌ MEDQUEUE PRO FAILED TO START");
+    console.error("========================================");
+    console.error(error.message);
+    console.error("========================================");
 
     process.exit(1);
   }
@@ -500,7 +332,9 @@ async function startServer() {
 // START
 // ============================================================
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
 
 // ============================================================
 // EXPORT
