@@ -7,23 +7,17 @@ const poolConfig = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-
   waitForConnections: true,
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
   queueLimit: 0,
-
-  // Return MySQL DATE/TIME values as strings.
   dateStrings: true,
-
-  connectTimeout: 15000
+  connectTimeout: 15000,
 };
 
-// Aiven MySQL normally requires an encrypted connection.
-// SSL is enabled only when DB_SSL=true, so local MySQL can still work
-// without SSL.
+// Aiven MySQL requires SSL.
 if (process.env.DB_SSL === "true") {
   poolConfig.ssl = {
-    rejectUnauthorized: true
+    rejectUnauthorized: false,
   };
 }
 
@@ -44,11 +38,7 @@ async function testConnection() {
 
     return true;
   } catch (error) {
-    console.error(
-      "❌ MySQL connection failed:",
-      error.message
-    );
-
+    console.error("❌ MySQL connection failed:", error.message);
     throw error;
   } finally {
     if (connection) {
@@ -59,5 +49,5 @@ async function testConnection() {
 
 module.exports = {
   pool,
-  testConnection
+  testConnection,
 };
