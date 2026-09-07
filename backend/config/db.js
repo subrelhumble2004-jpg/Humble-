@@ -1,4 +1,6 @@
 const mysql = require("mysql2/promise");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
 const poolConfig = {
@@ -7,17 +9,26 @@ const poolConfig = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+
   waitForConnections: true,
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
   queueLimit: 0,
+
   dateStrings: true,
   connectTimeout: 15000,
 };
 
-// Aiven MySQL requires SSL.
+// Aiven MySQL SSL configuration
 if (process.env.DB_SSL === "true") {
+  const caPath = path.join(__dirname, "ca.pem");
+
+  if (!fs.existsSync(caPath)) {
+    throw new Error(`Aiven CA certificate not found: ${caPath}`);
+  }
+
   poolConfig.ssl = {
-    rejectUnauthorized: false,
+    ca: fs.readFileSync(caPath),
+    rejectUnauthorized: true,
   };
 }
 
