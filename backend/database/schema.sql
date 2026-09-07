@@ -5,14 +5,17 @@
 -- ============================================================
 
 -- IMPORTANT:
--- Railway already creates the database.
--- DO NOT use CREATE DATABASE here.
--- This file creates the tables inside Railway's selected database.
+-- This file creates the tables inside the currently selected
+-- MySQL database.
+--
+-- Run this file manually when setting up a fresh database.
+-- DO NOT run this file automatically when the server starts,
+-- because it contains DROP TABLE statements.
 
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================================
--- USERS
+-- REMOVE EXISTING TABLES
 -- ============================================================
 
 DROP TABLE IF EXISTS notifications;
@@ -21,6 +24,10 @@ DROP TABLE IF EXISTS appointments;
 DROP TABLE IF EXISTS doctors;
 DROP TABLE IF EXISTS departments;
 DROP TABLE IF EXISTS users;
+
+-- ============================================================
+-- USERS
+-- ============================================================
 
 CREATE TABLE users (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -50,6 +57,7 @@ CREATE TABLE users (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
@@ -62,7 +70,6 @@ CREATE TABLE users (
     INDEX idx_users_active (is_active)
 );
 
-
 -- ============================================================
 -- DEPARTMENTS
 -- ============================================================
@@ -71,6 +78,7 @@ CREATE TABLE departments (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     name VARCHAR(150) NOT NULL,
+
     description TEXT,
 
     location VARCHAR(255) DEFAULT NULL,
@@ -78,6 +86,7 @@ CREATE TABLE departments (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
@@ -88,7 +97,6 @@ CREATE TABLE departments (
     INDEX idx_department_active (is_active)
 );
 
-
 -- ============================================================
 -- DOCTORS
 -- ============================================================
@@ -97,6 +105,7 @@ CREATE TABLE doctors (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     user_id INT UNSIGNED NOT NULL,
+
     department_id INT UNSIGNED NOT NULL,
 
     specialization VARCHAR(150) NOT NULL,
@@ -114,6 +123,7 @@ CREATE TABLE doctors (
     ) NOT NULL DEFAULT 'available',
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
@@ -124,6 +134,7 @@ CREATE TABLE doctors (
     UNIQUE KEY unique_license_number (license_number),
 
     INDEX idx_doctor_department (department_id),
+
     INDEX idx_doctor_status (availability_status),
 
     CONSTRAINT fk_doctor_user
@@ -139,7 +150,6 @@ CREATE TABLE doctors (
         ON UPDATE CASCADE
 );
 
-
 -- ============================================================
 -- APPOINTMENTS
 -- ============================================================
@@ -148,10 +158,13 @@ CREATE TABLE appointments (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     patient_id INT UNSIGNED NOT NULL,
+
     doctor_id INT UNSIGNED NOT NULL,
+
     department_id INT UNSIGNED NOT NULL,
 
     appointment_date DATE NOT NULL,
+
     appointment_time TIME NOT NULL,
 
     reason TEXT DEFAULT NULL,
@@ -167,15 +180,20 @@ CREATE TABLE appointments (
     notes TEXT DEFAULT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
 
     INDEX idx_appointment_patient (patient_id),
+
     INDEX idx_appointment_doctor (doctor_id),
+
     INDEX idx_appointment_department (department_id),
+
     INDEX idx_appointment_date (appointment_date),
+
     INDEX idx_appointment_status (status),
 
     CONSTRAINT fk_appointment_patient
@@ -197,7 +215,6 @@ CREATE TABLE appointments (
         ON UPDATE CASCADE
 );
 
-
 -- ============================================================
 -- QUEUE TICKETS
 -- ============================================================
@@ -206,8 +223,11 @@ CREATE TABLE queue_tickets (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     appointment_id INT UNSIGNED DEFAULT NULL,
+
     patient_id INT UNSIGNED NOT NULL,
+
     doctor_id INT UNSIGNED DEFAULT NULL,
+
     department_id INT UNSIGNED NOT NULL,
 
     ticket_number VARCHAR(50) NOT NULL,
@@ -226,8 +246,11 @@ CREATE TABLE queue_tickets (
     ) NOT NULL DEFAULT 'waiting',
 
     checked_in_at DATETIME DEFAULT NULL,
+
     called_at DATETIME DEFAULT NULL,
+
     served_at DATETIME DEFAULT NULL,
+
     completed_at DATETIME DEFAULT NULL,
 
     estimated_wait_minutes INT UNSIGNED DEFAULT NULL,
@@ -235,6 +258,7 @@ CREATE TABLE queue_tickets (
     notes TEXT DEFAULT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
@@ -246,10 +270,15 @@ CREATE TABLE queue_tickets (
     ),
 
     INDEX idx_queue_patient (patient_id),
+
     INDEX idx_queue_doctor (doctor_id),
+
     INDEX idx_queue_department (department_id),
+
     INDEX idx_queue_date (queue_date),
+
     INDEX idx_queue_status (status),
+
     INDEX idx_queue_position (queue_position),
 
     CONSTRAINT fk_queue_appointment
@@ -277,7 +306,6 @@ CREATE TABLE queue_tickets (
         ON UPDATE CASCADE
 );
 
-
 -- ============================================================
 -- NOTIFICATIONS
 -- ============================================================
@@ -288,6 +316,7 @@ CREATE TABLE notifications (
     user_id INT UNSIGNED NOT NULL,
 
     title VARCHAR(200) NOT NULL,
+
     message TEXT NOT NULL,
 
     type ENUM(
@@ -304,7 +333,9 @@ CREATE TABLE notifications (
     PRIMARY KEY (id),
 
     INDEX idx_notification_user (user_id),
+
     INDEX idx_notification_read (is_read),
+
     INDEX idx_notification_created (created_at),
 
     CONSTRAINT fk_notification_user
@@ -313,7 +344,6 @@ CREATE TABLE notifications (
         ON DELETE CASCADE
         ON UPDATE CASCADE
 );
-
 
 -- ============================================================
 -- SAMPLE DEPARTMENTS
@@ -353,25 +383,13 @@ VALUES
         'Women Health Unit'
     );
 
-
 -- ============================================================
--- OPTIONAL DEMO ADMIN
+-- DEMO ADMIN
 -- ============================================================
---
--- DO NOT insert a plain-text password here.
--- Your application should create users through the registration
--- endpoint and hash passwords with bcrypt.
---
--- Example:
---
--- INSERT INTO users
--- (full_name, email, password_hash, role)
--- VALUES
--- ('System Administrator',
---  'admin@medqueuepro.com',
---  '$2b$10$YOUR_BCRYPT_HASH_HERE',
---  'admin');
 
+-- No plain-text password is stored here.
+-- The application seed script creates the admin account
+-- using bcrypt hashing.
 
 -- ============================================================
 -- FOREIGN KEYS BACK ON
@@ -379,12 +397,12 @@ VALUES
 
 SET FOREIGN_KEY_CHECKS = 1;
 
-
 -- ============================================================
 -- VERIFICATION
 -- ============================================================
 
-SELECT 'MedQueue Pro database schema loaded successfully'
+SELECT
+    'MedQueue Pro database schema loaded successfully'
     AS message;
 
 SHOW TABLES;
