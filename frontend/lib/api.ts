@@ -1,95 +1,119 @@
 import axios from "axios";
-
 // =========================================================
-// CENTRAL API CLIENT
+// MEDQUEUE PRO — CENTRAL API CLIENT
 // =========================================================
-
+// IMPORTANT:
+// The production Render backend is used directly.
+// This avoids Vercel environment-variable problems.
+const API_BASE_URL =
+  "https://medqueue-pro-backend.onrender.com/api";
 export const api = axios.create({
-  baseURL:
-    process.env.NEXT_PUBLIC_API_URL ||
-    "https://medqueue-pro-backend.onrender.com/api",
+  baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
   timeout: 30000,
 });
-
 // =========================================================
 // JWT AUTHENTICATION
 // =========================================================
-
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("mqp_token");
-
       if (token) {
+        config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
-
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    return Promise.reject(error);
+  }
 );
-
 // =========================================================
-// AUTH
+// AUTHENTICATION
 // =========================================================
-
+// REGISTER PATIENT
 export const registerPatient = (data: {
   fullName: string;
   email: string;
   phone?: string;
   password: string;
-}) => api.post("/auth/register", data);
-
+}) => {
+  return api.post("/auth/register", data);
+};
+// LOGIN
 export const login = (data: {
   email: string;
   password: string;
-}) => api.post("/auth/login", data);
-
-export const getMe = () => api.get("/auth/me");
-
+}) => {
+  return api.post("/auth/login", data);
+};
+// GET CURRENT USER
+export const getMe = () => {
+  return api.get("/auth/me");
+};
+// REFRESH TOKEN
+export const refreshToken = (refreshToken: string) => {
+  return api.post("/auth/refresh", {
+    refreshToken,
+  });
+};
 // =========================================================
-// DEPARTMENTS & DOCTORS
+// DEPARTMENTS
 // =========================================================
-
-export const fetchDepartments = () =>
-  api.get("/departments");
-
+// GET ALL DEPARTMENTS
+export const fetchDepartments = () => {
+  return api.get("/departments");
+};
+// =========================================================
+// DOCTORS
+// =========================================================
+// GET DOCTORS
 export const fetchDoctors = (params?: {
   department?: string;
   status?: string;
-}) =>
-  api.get("/doctors", {
+}) => {
+  return api.get("/doctors", {
     params,
   });
-
+};
 // =========================================================
 // APPOINTMENTS
 // =========================================================
-
+// BOOK APPOINTMENT
 export const bookAppointment = (data: {
   doctorId: number;
   departmentId: number;
   date: string;
   time: string;
   reason?: string;
-}) =>
-  api.post("/appointments", data);
-
-export const fetchMyAppointments = () =>
-  api.get("/appointments/me");
-
+}) => {
+  return api.post("/appointments", data);
+};
+// GET MY APPOINTMENTS
+export const fetchMyAppointments = () => {
+  return api.get("/appointments/me");
+};
+// GET DOCTOR APPOINTMENTS
 export const fetchDoctorAppointments = (
   doctorId: number,
   date?: string
-) =>
-  api.get(`/appointments/doctor/${doctorId}`, {
-    params: date ? { date } : undefined,
-  });
-
+) => {
+  return api.get(
+    `/appointments/doctor/${doctorId}`,
+    {
+      params: date
+        ? {
+            date,
+          }
+        : undefined,
+    }
+  );
+};
+// UPDATE APPOINTMENT STATUS
 export const updateAppointmentStatus = (
   id: number,
   status:
@@ -99,45 +123,95 @@ export const updateAppointmentStatus = (
     | "completed"
     | "cancelled"
     | "missed"
-) =>
-  api.patch(`/appointments/${id}/status`, {
-    status,
-  });
-
-export const cancelAppointment = (id: number) =>
-  api.patch(`/appointments/${id}/cancel`);
-
+) => {
+  return api.patch(
+    `/appointments/${id}/status`,
+    {
+      status,
+    }
+  );
+};
+// CANCEL APPOINTMENT
+export const cancelAppointment = (
+  id: number
+) => {
+  return api.patch(
+    `/appointments/${id}/cancel`
+  );
+};
+// RESCHEDULE APPOINTMENT
 export const rescheduleAppointment = (
   id: number,
   data: {
     date: string;
     time: string;
   }
-) =>
-  api.patch(`/appointments/${id}/reschedule`, data);
-
+) => {
+  return api.patch(
+    `/appointments/${id}/reschedule`,
+    data
+  );
+};
 // =========================================================
 // QUEUE
 // =========================================================
-
+// GET DEPARTMENT QUEUE
 export const fetchDepartmentQueue = (
   departmentId: number
-) =>
-  api.get(`/queue/${departmentId}`);
-
+) => {
+  return api.get(
+    `/queue/${departmentId}`
+  );
+};
+// GET QUEUE POSITION
 export const fetchQueuePosition = (
   appointmentId: number
-) =>
-  api.get(
+) => {
+  return api.get(
     `/queue/appointment/${appointmentId}/position`
   );
-
+};
 // =========================================================
 // ADMIN
 // =========================================================
-
-export const fetchAdminStats = () =>
-  api.get("/admin/stats");
-
-export const fetchAllPatients = () =>
-  api.get("/admin/patients");
+// GET ADMIN STATISTICS
+export const fetchAdminStats = () => {
+  return api.get("/admin/stats");
+};
+// GET ALL PATIENTS
+export const fetchAllPatients = () => {
+  return api.get("/admin/patients");
+};
+// =========================================================
+// HEALTH CHECK
+// =========================================================
+export const checkBackendHealth = () => {
+  return api.get("/health");
+};
+// =========================================================
+// AXIOS RESPONSE INTERCEPTOR
+// =========================================================
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  (error) => {
+    if (error?.response) {
+      console.error(
+        "MedQueue Pro API Error:",
+        error.response.status,
+        error.response.data
+      );
+    } else if (error?.request) {
+      console.error(
+        "MedQueue Pro API Error: No response received from server."
+      );
+    } else {
+      console.error(
+        "MedQueue Pro API Error:",
+        error.message
+      );
+    }
+    return Promise.reject(error);
+  }
+);
