@@ -1,27 +1,37 @@
 import axios from "axios";
 
-// Central Axios client wired to the Express + MySQL backend.
+// =========================================================
+// CENTRAL API CLIENT
+// =========================================================
+
 export const api = axios.create({
   baseURL:
     process.env.NEXT_PUBLIC_API_URL ||
-    "https://humble-production.up.railway.app/api",
+    "https://medqueue-pro-backend.onrender.com/api",
   headers: {
     "Content-Type": "application/json",
   },
+  timeout: 30000,
 });
 
-// Automatically attach the logged-in user's JWT token.
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("mqp_token");
+// =========================================================
+// JWT AUTHENTICATION
+// =========================================================
 
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+api.interceptors.request.use(
+  (config) => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("mqp_token");
+
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
-  }
 
-  return config;
-});
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 // =========================================================
 // AUTH
@@ -32,17 +42,14 @@ export const registerPatient = (data: {
   email: string;
   phone?: string;
   password: string;
-}) =>
-  api.post("/auth/register", data);
+}) => api.post("/auth/register", data);
 
 export const login = (data: {
   email: string;
   password: string;
-}) =>
-  api.post("/auth/login", data);
+}) => api.post("/auth/login", data);
 
-export const getMe = () =>
-  api.get("/auth/me");
+export const getMe = () => api.get("/auth/me");
 
 // =========================================================
 // DEPARTMENTS & DOCTORS
@@ -75,7 +82,6 @@ export const bookAppointment = (data: {
 export const fetchMyAppointments = () =>
   api.get("/appointments/me");
 
-// Doctor: get appointments belonging to this doctor.
 export const fetchDoctorAppointments = (
   doctorId: number,
   date?: string
@@ -84,7 +90,6 @@ export const fetchDoctorAppointments = (
     params: date ? { date } : undefined,
   });
 
-// Doctor/Admin: update appointment status.
 export const updateAppointmentStatus = (
   id: number,
   status:
@@ -115,11 +120,17 @@ export const rescheduleAppointment = (
 // QUEUE
 // =========================================================
 
-export const fetchDepartmentQueue = (departmentId: number) =>
+export const fetchDepartmentQueue = (
+  departmentId: number
+) =>
   api.get(`/queue/${departmentId}`);
 
-export const fetchQueuePosition = (appointmentId: number) =>
-  api.get(`/queue/appointment/${appointmentId}/position`);
+export const fetchQueuePosition = (
+  appointmentId: number
+) =>
+  api.get(
+    `/queue/appointment/${appointmentId}/position`
+  );
 
 // =========================================================
 // ADMIN
